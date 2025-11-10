@@ -1,0 +1,8 @@
+# Ignore the config file with your AWS secrets
+frontend/js/config.js
+
+# Ignore common OS and Python files
+.DS_Store
+__pycache__/
+*.pyc
+*.log
