@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitHub Repo Explorer | Dashboard</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app-layout">
+    <!-- LEFT PANEL -->
+    <aside class="sidebar">
+      <div class="explorer-header">
+        <span><i class="bi bi-folder"></i> Explorer</span>
+      </div>
+      <div id="file-list" class="file-list"><p class="text-muted small">No files yet.</p></div>
+    </aside>
+
+    <!-- CENTER PANEL -->
+    <main class="main-panel">
+      <nav class="navbar navbar-dark bg-vscode px-3 py-2 d-flex justify-content-between align-items-center">
+        <span class="navbar-brand fw-semibold d-flex align-items-center gap-2">
+          <i class="bi bi-rocket"></i> 
+          GitHub Repo Explorer
+          <button type="button" class="btn btn-sm btn-light ms-2" 
+            data-bs-toggle="popover"
+            data-bs-placement="bottom"
+            data-bs-html="true"
+            title="Using GitHub Code Explorer"
+            data-bs-content="
+              <ul class='mb-0 ps-3'>
+                <li><strong>Checkboxes</strong> – Select which analyses to run (Summary, Tech Stack, Activity, Contributors).</li>
+                <li><strong>Explorer</strong> – Displays all repo files. Folders are shown in gray and not clickable.</li>
+                <li><strong>Agent Report</strong> – Shows analysis results in real time as your agent processes tasks.</li>
+                <li><strong>Chat Assistant</strong> – Lets you ask questions about the <strong>README.md</strong> content only.</li>
+              </ul>
+            ">
+            <i class="bi bi-question-circle text-primary"></i>
+          </button>
+        </span>
+        <button id="logout-button" class="btn btn-outline-light btn-sm"><i class="bi bi-box-arrow-right"></i> Logout</button>
+      </nav>
+      <div class="p-4 flex-grow-1 d-flex flex-column">
+        <form id="mission-form" class="row g-3 align-items-end mb-3">
+          <div class="col-md-9">
+            <label class="form-label fw-semibold">GitHub Repo URL</label>
+            <input
+              type="text"
+              id="repo-url"
+              class="form-control"
+              placeholder="Please type your GitHub repo link (e.g. https://github.com/username/repo)"
+              required
+            />
+          </div>
+
+          <div class="col-md-3 d-grid">
+            <button id="analyze-button" class="btn btn-primary" type="submit" 
+              data-bs-toggle="tooltip"
+              data-bs-placement="bottom"
+              title="Fetches repository data, analyzes files, and generates AI insights.">
+              <i class="bi bi-lightning-charge"></i> Analyze Repo
+            </button>
+          </div>
+        </form>
+        <div class="mb-3 d-flex flex-wrap gap-3">
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="task-summary" checked><label class="form-check-label">Summary</label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="task-tech"><label class="form-check-label">Tech Stack</label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="task-activity"><label class="form-check-label">Activity</label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="task-contrib"><label class="form-check-label">Contributors</label></div>
+        </div>
+
+        <div class="card border-0 shadow-sm mb-3">
+          <div class="card-header">Status Log</div>
+          <div id="status-log" class="card-body small status-log">AGENT: Ready...</div>
+        </div>
+
+        <div class="card border-0 shadow-sm flex-grow-1 d-flex flex-column">
+          <div class="card-header bg-primary text-white">Agent Report</div>
+          <div id="final-report" class="card-body report-body"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT PANEL -->
+    <aside class="chat-panel">
+      <div class="chat-header bg-vscode p-2 text-light d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-chat-left-text"></i> Chat Assistant</span>
+        <button id="clear-chat" class="btn btn-sm btn-outline-light"><i class="bi bi-trash"></i></button>
+      </div>
+      <div id="chat-window" class="chat-window p-3"></div>
+      <form id="chat-form" class="d-flex align-items-end p-2 border-top border-secondary">
+        <textarea id="chat-input" class="form-control me-2 flex-grow-1" placeholder="Ask the agent..." rows="1" style="resize: none; overflow: hidden;"></textarea>
+        <button class="btn btn-success" type="submit"><i class="bi bi-send"></i></button>
+      </form>
+    </aside>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js@6.3.15/dist/amazon-cognito-identity.min.js"></script>
+  <script src="js/config.js"></script>
+  <script>
+    // Enable Bootstrap popovers (HTML content allowed)
+    document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el =>
+      new bootstrap.Popover(el, { html: true, trigger: 'focus' })
+    );
+
+
+    window.addEventListener("load", () => {
+      const storedUser = localStorage.getItem("agentUser");
+      const idToken = localStorage.getItem("idToken");
+      const API_URL = window._workshopConfig?.api?.invokeUrl?.replace(/\/$/, "");
+
+      if (!storedUser || !idToken || !API_URL) {
+        console.warn("User not authenticated or config missing. Redirecting...");
+        window.location.href = "index.html";
+        return;
+      }
+    const statusLog = document.getElementById("status-log");
+    const finalReport = document.getElementById("final-report");
+    const fileList = document.getElementById("file-list");
+    const chatWindow = document.getElementById("chat-window");
+    let observedData = {}, chatHistory = [];
+
+    function log(msg) {
+      statusLog.textContent += `\nAGENT: ${msg}`;
+      statusLog.scrollTop = statusLog.scrollHeight;
+    }
+
+    function appendToReport(content) {
+      if (typeof content !== "string") {
+        finalReport.insertAdjacentHTML("beforeend", content);
+        finalReport.scrollTop = finalReport.scrollHeight;
+        return;
+      }
+
+      let text = content
+        .replace(/\\n/g, "\n")
+        .replace(/\r/g, "")
+        .replace(/•/g, "\n•")
+        .trim();
+
+      const lines = text
+        .split(/\n+/)
+        .map(line => line.trim())
+        .filter(Boolean);
+
+      let html = "";
+      let bulletLines = [];
+      let titleBlock = "";
+
+      for (const line of lines) {
+        // Detect section titles (e.g., start with uppercase words and no punctuation)
+        if (/^[A-Z][A-Za-z\s&]+$/.test(line) || line.length < 80 && !line.includes(":")) {
+          if (bulletLines.length) {
+            html +=
+              "<ul>" +
+              bulletLines.map(l => `<li>${l}</li>`).join("") +
+              "</ul>";
+            bulletLines = [];
+          }
+          titleBlock = `<h5 class="mt-3 mb-2 text-info fw-semibold border-start border-4 border-primary ps-2">${line}</h5>`;
+          html += titleBlock;
+        } else if (line.startsWith("•") || line.startsWith("- ")) {
+          bulletLines.push(line.replace(/^[-•]\s*/, ""));
+        } else {
+          if (bulletLines.length) {
+            html +=
+              "<ul>" +
+              bulletLines.map(l => `<li>${l}</li>`).join("") +
+              "</ul>";
+            bulletLines = [];
+          }
+          html += `<p>${line}</p>`;
+        }
+      }
+
+      // Flush remaining bullet lines if any
+      if (bulletLines.length) {
+        html +=
+          "<ul>" +
+          bulletLines.map(l => `<li>${l}</li>`).join("") +
+          "</ul>";
+      }
+
+      finalReport.insertAdjacentHTML("beforeend", html);
+      finalReport.scrollTop = finalReport.scrollHeight;
+    }
+
+
+
+
+    async function callApi(path, body) {
+      const res = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": idToken },
+        body: JSON.stringify(body)
+      });
+      const txt = await res.text();
+      if (txt.trim().startsWith("<")) throw new Error("Received HTML from API");
+      return JSON.parse(txt);
+    }
+
+    document.getElementById("logout-button").addEventListener("click", () => {
+      localStorage.clear();
+      window.location.href = "index.html";
+    });
+
+    document.getElementById("mission-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const repo = document.getElementById("repo-url").value.trim();
+      if (!repo) return;
+      finalReport.innerHTML = "";
+      log(`Observing ${repo}...`);
+      try {
+        const data = await callApi("/observe", { repo_url: repo });
+        observedData = data;
+        const files = (data.file_tree || []).filter(f =>
+          f.path && !f.path.startsWith(".") && !f.path.includes(".changes/")
+        );
+        renderFiles(files);
+        log(`Repository analyzed. ${files.length} files found.`);
+
+        const tasks = [];
+        if (document.getElementById("task-summary").checked) tasks.push("Summarize Repo Purpose");
+        if (document.getElementById("task-tech").checked) tasks.push("Identify Tech Stack & Dependencies");
+        if (document.getElementById("task-activity").checked) tasks.push("Analyze Activity Trends");
+        if (document.getElementById("task-contrib").checked) tasks.push("Find Key Contributors");
+
+        for (const task of tasks) {
+          log(`Executing: ${task}`);
+          const result = await callApi("/act", { task, data });
+          appendToReport(`<div class="mb-3"><h5 class="text-info">${task}</h5><div class="bg-light text-dark p-3 rounded">${result.result}</div></div>`);
+        }
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      }
+    });
+
+    function renderFiles(files) {
+      if (!files.length) {
+        fileList.innerHTML = "<p class='text-muted small'>No files found.</p>";
+        return;
+      }
+      fileList.innerHTML = files.slice(0, 100).map(f => {
+        const isFolder = !/\.[a-z0-9]+$/i.test(f.path);
+        const cls = isFolder ? "text-muted folder" : "file-link text-primary";
+        return `<a href="#" class="${cls} d-block small mb-1">${f.path}</a>`;
+      }).join("");
+
+      fileList.addEventListener("click", async e => {
+        if (!e.target.classList.contains("file-link")) return;
+        e.preventDefault();
+        const path = e.target.textContent;
+        log(`Fetching ${path}...`);
+        const content = await callApi("/get_file_content", { repo_name: observedData.repo_name, file_path: path });
+        const explain = await callApi("/act", { task: "Explain File", data: { readme_content: observedData.readme, file_content: content } });
+        appendToReport(`<div class="mt-3"><h6>${path}</h6><div class="bg-light text-dark p-2 rounded">${explain.result}</div></div>`);
+      });
+    }
+
+    document.getElementById("chat-form").addEventListener("submit", async e => {
+      e.preventDefault();
+      const q = document.getElementById("chat-input").value.trim();
+      if (!q) return;
+      appendChat("user", q);
+      document.getElementById("chat-input").value = "";
+      try {
+        const res = await callApi("/chat", { readme_content: observedData.readme, chat_history: chatHistory, question: q });
+        appendChat("agent", res.result);
+        chatHistory.push({ user: q, agent: res.result });
+      } catch (err) {
+        appendChat("agent", `Error: ${err.message}`);
+      }
+    });
+
+    function appendChat(sender, text) {
+      const div = document.createElement("div");
+      div.className = `chat-msg ${sender}`;
+      div.innerHTML = `<div class="p-2 rounded ${sender === "user" ? "bg-primary text-white ms-auto" : "bg-secondary text-dark me-auto"}" style="max-width:85%;">${text}</div>`;
+      chatWindow.appendChild(div);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+    // Auto-resize chat textarea
+    const chatInput = document.getElementById("chat-input");
+    chatInput.addEventListener("input", () => {
+      chatInput.style.height = "auto";
+      chatInput.style.height = chatInput.scrollHeight + "px";
+    });
+
+
+    document.getElementById("clear-chat").addEventListener("click", () => {
+      chatWindow.innerHTML = "";
+      chatHistory = [];
+    });
+  });
+  </script>
+</body>
+</html>
