@@ -1,4 +1,4 @@
-# 🚀 Codebase Explorer Agent 🚀
+# 🚀 GitHub Repository Explorer Agent 🚀
 **Submission for the Agentic AI x AWS Challenge (Track 2: Codebase & Repository Explorer)**
 
 ### 🎥 Quick Demo
